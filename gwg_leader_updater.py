@@ -1,16 +1,10 @@
-import argparse
 import logging
-import sys
-import traceback
 from datetime import datetime as dt
-from time import sleep
 
-from drive_manager import DriveManager
 from praw_login import r
-from secret_manager import SecretManager
 
 class GWGLeaderUpdater:
-
+    """Class that manages the GWG Leader updating"""
     log = None
     gdrive = None
     gwg_args = None
@@ -20,7 +14,7 @@ class GWGLeaderUpdater:
         self.gdrive = gdrive
         self.secrets = secrets
         self.gwg_args = gwg_args
-        log = logging.getLogger("gwg_poster")
+        self.log = logging.getLogger("gwg_poster")
 
     def get_list_of_entries(self, files):
         """This function accepts a list of files that we will go through
@@ -32,13 +26,13 @@ class GWGLeaderUpdater:
         new_data = []
         sorted_files = sorted(files, key=lambda x: x['createdDate'])
 
-        log.debug("Getting new GWG entries...")
+        self.log.debug("Getting new GWG entries...")
 
         #sort files by creation date so we read oldest files first(earlier games)
         for file in sorted_files:
             new_data.append(self.gdrive.get_file_entries(file))
 
-        log.debug("Done getting new GWG entires.")
+        self.log.debug("Done getting new GWG entires.")
         return new_data
 
     def format_results_data(self, data):
@@ -79,16 +73,16 @@ class GWGLeaderUpdater:
         the previous games results and the answer key.
         """
 
-        log.debug("Creating new history lines for previous game leaderboard.")
+        self.log.debug("Creating new history lines for previous game leaderboard.")
 
         leader_fileid = self.gdrive.get_drive_filetype('leaderboard')['id']
 
         if game['name'] in self.gdrive.get_all_books_sheets(leader_fileid):
-            log.error("This game has already been written to the worksheet as a sheet")
-            log.error("Assuming this is a failure recovery and continuing(?)")
+            self.log.error("This game has already been written to the worksheet as a sheet")
+            self.log.error("Assuming this is a failure recovery and continuing(?)")
             return True
         else:
-            log.debug("adding sheet %s to book" % game['name'])
+            self.log.debug("adding sheet %s to book" % game['name'])
             new_sheet = {}
             new_sheet['id'] = leader_fileid
             new_sheet['name'] = game['name']
@@ -125,7 +119,7 @@ class GWGLeaderUpdater:
             new_sheet['data'].append(["Late entries: " + str(num_late_entries)])
             new_sheet['data'].append(["Total valid entries: " + str(len(data_line) - num_late_entries)])
 
-            log.debug("Done with creating new worksheet %s data" % game['name'])
+            self.log.debug("Done with creating new worksheet %s data" % game['name'])
 
             return new_sheet
 
@@ -139,9 +133,9 @@ class GWGLeaderUpdater:
         starting_key = None
 
         # goes through the list and count the people that share the common position and games played.
-        for username in sorted(data, key=lambda x:(data[x]['curr'],
-                                                -data[x]['played']), 
-                                    reverse=True):
+        for username in sorted(data, key=lambda x: (data[x]['curr'],
+                                                    -data[x]['played']),
+                               reverse=True):
 
             key = (data[username]['curr'], data[username]['played'])
             # first time running, save the "best" score
@@ -226,9 +220,9 @@ class GWGLeaderUpdater:
                                                 'played': int(points['played']),
                                                 'last_rank': points['rank']}
                 else:
-                    log.critical("I didn't expect this to fire but it did and here we are")
-                    log.critical("points dump : '%s'" % points)
-                    log.critical("user dump : '%s'" % user)
+                    self.log.critical("I didn't expect this to fire but it did and here we are")
+                    self.log.critical("points dump : '%s'" % points)
+                    self.log.critical("user dump : '%s'" % user)
                     new_leaderboard[username] = {'curr': int(points), 
                                                 'last': 0, 
                                                 'played': int(curr_points['played']),
@@ -285,7 +279,7 @@ class GWGLeaderUpdater:
         return a list of files that match the list of pending game_names we are passed
         """
 
-        log.debug("collecting files from pending game names")
+        self.log.debug("collecting files from pending game names")
 
         pending_games = []
         files = self.gdrive.get_drive_filetype('responses')
@@ -296,7 +290,7 @@ class GWGLeaderUpdater:
                     pending_games.append(file)
                     break
 
-        log.debug("Done collecting pending game files for games %s" % game_names)
+        self.log.debug("Done collecting pending game files for games %s" % game_names)
         return pending_games
 
     def _get_leaderboard_update_body(self, ):
@@ -316,15 +310,15 @@ class GWGLeaderUpdater:
     def notify_reddit(self, team):
         """Look for a PGT or a GDT or a ODT and post a comment in there saying the leaderboard is updated."""
 
-        log.debug("attempting to notify reddit of updated leaderboard")
+        self.log.debug("attempting to notify reddit of updated leaderboard")
         for submission in r.subreddit(secrets.get_reddit_name(team)).new(limit=10):
             if "pgt" in submission.title.lower():
-                log.debug("     Found a thread")
+                self.log.debug("     Found a thread")
                 if self._valid_date_in_title(submission.created_utc):
-                    log.debug("        Appropriate thread creation date. Posting...")
+                    self.log.debug("        Appropriate thread creation date. Posting...")
                     comment = submission.reply(self._get_leaderboard_update_body())
                     comment.disable_inbox_replies()
-                    log.debug("done notifying reddit of updates")
+                    self.log.debug("done notifying reddit of updates")
                     break
 
     def manage_gwg_leaderboard(self, pending_games):
@@ -334,75 +328,6 @@ class GWGLeaderUpdater:
         latest_entrants = self.get_list_of_entries(self.get_pending_game_data(pending_games))
 
         if not latest_entrants or len(latest_entrants) == 0:
-            log.debug("No new entrants needed to be ingested")
+            self.log.debug("No new entrants needed to be ingested")
         else:
             self.update_leaderboard_spreadsheet(latest_entrants)
-
-def parse_args():
-    """Handle arguments"""
-
-    parser = argparse.ArgumentParser()
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--test', '-t' ,action='store_true', help='Run in test mode with team -1')
-    group.add_argument('--prod', '-p', action='store_true', help='Run in production mode with full subscribed team list')
-    parser.add_argument('--debug', '-d', action='store_true', help='debug messages turned on', default=False)
-    parser.add_argument('--single', '-s', action='store_true', help='runs only once', default=False)
-
-    gwg_args = parser.parse_args()
-
-    return gwg_args
-
-def init_logger(level):
-    logging.basicConfig(level=level, filename="gwg_leader.log", filemode="a+",
-                        format="%(asctime)-15s %(levelname)-8s %(message)s")
-    log = logging.getLogger("gwg_poster")
-    log.info("Started gwg_poster")
-
-def main():
-    gwg_args = parse_args()
-
-    level = logging.DEBUG if gwg_args.debug else logging.INFO
-    init_logger(level)
-
-    secrets = SecretManager()
-    
-    team = None
-
-    if gwg_args.test:
-        team = "-1"
-    elif gwg_args.prod:
-        team = "52"
-    else:
-        logging.getLogger("gwg_poster").critical("Something horrible happened because you should always have a single one of the above options on. Quitting.")
-        sys.exit()
-
-    gdrive = DriveManager(secrets, team=team, update=False)
-    gwg_updater = GWGLeaderUpdater(gdrive, secrets, gwg_args)
-
-    while True:
-        gdrive.update_drive_files()
-
-        pending_games = gdrive.new_response_data_available()
-
-        if pending_games != []:
-            gwg_updater.manage_gwg_leaderboard(pending_games)
-
-        if gdrive.new_leaderboard_data():
-            gwg_updater.update_master_list()
-            gwg_updater.notify_reddit(team)
-
-        # quit if we are testing instead of running forever
-        if gwg_args.test:
-            logging.getLogger("gwg_poster").info("Exiting a test run")
-            return
-
-        if gwg_args.single:
-            logging.getLogger("gwg_poster").info("Exiting early due to --single command on cli")
-            sys.exit()
-
-        sleep_time = 60*60
-        logging.getLogger("gwg_poster").info("No new data available for updating with. Sleeping for %s" % sleep_time)
-        sleep(sleep_time)
-
-if __name__ == '__main__':
-    main()
