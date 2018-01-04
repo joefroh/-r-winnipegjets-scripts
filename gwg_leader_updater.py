@@ -2,6 +2,7 @@ import logging
 from datetime import datetime as dt
 
 from praw_login import r
+LOGGER_NAME = "gwg_poster"
 
 class GWGLeaderUpdater:
     """Class that manages the GWG Leader updating"""
@@ -14,7 +15,7 @@ class GWGLeaderUpdater:
         self.gdrive = gdrive
         self.secrets = secrets
         self.gwg_args = gwg_args
-        self.log = logging.getLogger("gwg_poster")
+        self.log = logging.getLogger(LOGGER_NAME)
 
     def get_list_of_entries(self, files):
         """This function accepts a list of files that we will go through
@@ -68,6 +69,24 @@ class GWGLeaderUpdater:
 
         return result
 
+    def get_game_headers(self, data):
+        """Takes a game name, pulls and parses the new headers to include a username
+        column.
+
+        Returns the new headers
+        """
+        results = []
+
+        headers = data['title']
+        new_data = headers[:2] + ["username"] + headers[2:]
+        results.append(new_data)
+
+        headers = data['result']
+        new_data = headers[:2] + [""] + headers[2:]
+        results.append(new_data)
+
+        return results
+
     def create_game_history(self, game):
         """takes the current game, makes a new worksheet in the google sheet that contains
         the previous games results and the answer key.
@@ -87,37 +106,50 @@ class GWGLeaderUpdater:
             new_sheet['id'] = leader_fileid
             new_sheet['name'] = game['name']
             new_sheet['rows'] = len(game['data'])
-            new_sheet['cols'] = 5 # timestamp, username, GWG, q2, q3
+            new_sheet['cols'] = 6 # timestamp, username, GWG, q2, q3, cqc
             new_sheet['data'] = []
+            new_sheet['late'] = []
+            new_sheet['stats'] = []
 
+            # get headers
             game_result_data = self.gdrive.get_games_result(game['name'])
-
-            new_sheet['data'].append(self.format_results_data(game_result_data['title']))
-            new_sheet['data'].append(self.format_results_data(game_result_data['result']))
+            new_sheet['data'] += self.get_game_headers(game_result_data)
 
             # magic number positioning
             gwg_answers = self.get_gwg_answers(game_result_data['result'])
             game_time = dt.strptime(game_result_data['result'][1], "%Y/%m/%d %H:%M")
+            game_time_readable = game_time.strftime('%Y/%m/%d %H:%M:%S')
 
             new_sheet['data'].append("")
 
             #remove heading, then iterate through the whole list.
             data_line = game['data'][1:]
             num_late_entries = 0
+            late_user_data = {'users': [], 'game_start': game_time_readable}
 
             for data in data_line:
+                entry_time = dt.strptime(data[0], "%d/%m/%Y %H:%M:%S")
+                date_readable = entry_time.strftime('%Y/%m/%d %H:%M:%S')
                 player_points = self.get_players_points(data, gwg_answers) 
-                new_data_line = ["", "", data[1], data[2], "", data[3], "", data[4], player_points]
+
+                # legacy support for comment questions concerns (remove in 2018/19 season and just directly accept data[5])
+                cqc = "" if len(data) !=6 else data[5]
+
+                new_data_line = ["", "", data[1], data[2], "", data[3], "", data[4], player_points, cqc]
 
                 # check if user got their entry in on time. if not, avoid it.
-                entry_time = dt.strptime(data[0], "%m/%d/%Y %H:%M:%S")
+                entry_time = dt.strptime(data[0], "%d/%m/%Y %H:%M:%S")
                 if (entry_time <= game_time):
                     new_sheet['data'].append(new_data_line)
                 else:
-                    num_late_entries += 1
-            new_sheet['data'].append(["Total entries: " + str(len(data_line))])
-            new_sheet['data'].append(["Late entries: " + str(num_late_entries)])
-            new_sheet['data'].append(["Total valid entries: " + str(len(data_line) - num_late_entries)])
+                    num_late_entries += 1 
+                    late_user_data['users'].append({'name': data[1], 'entry_time': date_readable})
+                    new_sheet['late'].append(new_data_line)
+
+            new_sheet['stats'].append(["Total entries: " + str(len(data_line))])
+            new_sheet['stats'].append(["Late entries: " + str(num_late_entries)])
+            new_sheet['stats'].append(["Total valid entries: " + str(len(data_line) - num_late_entries)])
+            new_sheet['messages'] = late_user_data
 
             self.log.debug("Done with creating new worksheet %s data" % game['name'])
 
@@ -255,6 +287,106 @@ class GWGLeaderUpdater:
 
         return True
 
+    def alert_late_users(self, game, late_users):
+        """Takes a list of games and users that entered their GWG entry late.
+        """
+
+        self.log.debug(f"Sending mail to late users: {late_users} for game {game}.")
+
+        subject = f"You had a late GWG Entry for {game}"
+
+        for user in late_users['users']:
+            body = f"""Hi {user['name']},  
+
+You had a late entry for a recent GWG challenge! The game's official puck drop was at {late_users['game_start']} and your entry was at {user['entry_time']}.
+Make sure to get this in on time in the future!  
+
+If you think this message was sent in error, please reply to this message with the description of issue you think there may be.
+
+Go Jets Go!"""
+            success = False
+            attempts = 0
+            while not success and attempts < 5:
+                try:
+                    r.redditor(user['name']).message(subject, body)
+                    success = True
+                except Exception as e:
+                    self.log.error("Exception trying to mail redditor %s. Waiting 30 and trying again." % user['username'])
+                    self.log.error("error: %s" % e)
+                    self.log.error(traceback.print_stack())
+                    attempts += 1
+                    sleep(30)
+        self.log.debug("Done sending late message mails.")
+
+    def update_leaderboard_spreadsheet(self, new_games):
+        """this function will read the leaderboard spreadsheet, update the latest worksheet, add
+        a new worksheet for the current game, and return success signal
+        """
+        for game in new_games:
+            self.gdrive.update_game_start_time(game['name'])
+            new_game_history = create_game_history(game)
+
+            gdrive.create_new_sheet(new_game_history)
+            alert_late_users(game['name'], new_game_history['messages'])
+
+    def convert_response_filename(self, name):
+        """convert a standardized game name string into a string our software expects.
+
+        Eg.   GM 3 (Responses) -> GM3
+             GM 62 (Responses) -> GM62
+            GWG 62 (Responses) -> GM62
+             GWG 3 (Responses) -> GM3
+        """
+        parts = name.split()
+        return "GM" + parts[1]
+
+    def get_pending_game_data(self, game_names):
+        """Goes through the pending game names and find their matching file for consumption.
+        return a list of files that match the list of pending game_names we are passed
+        """
+
+        self.log.debug("collecting files from pending game names %s" % game_names)
+
+        pending_games = []
+        files = self.gdrive.get_drive_filetype('responses')
+        for file in files:
+            filename = convert_response_filename(file['title'])
+            for game in game_names:
+                if game == filename:
+                    pending_games.append(file)
+                    break
+
+        self.log.debug("Done collecting pending game files for games %s" % game_names)
+        return pending_games
+
+    def _get_leaderboard_update_body(self):
+        leader_link = self.gdrive.get_drive_filetype('leaderboard')['alternateLink']
+        return ("""GWG has been updated! Check it out [here](%s)!  
+
+This is an automated message, please PM me if there are any issues.""" % leader_link)
+
+    def _valid_date_in_title(self, post_time):
+        """checks if this thread was posted on game day for PGT"""
+
+        today = dt.now()
+        post = dt.fromtimestamp(post_time)
+
+        return today.year == post.year and today.month == post.month and today.day == post.day
+
+    def notify_reddit(self, team):
+        """Look for a PGT or a GDT or a ODT and post a comment in there saying the leaderboard is updated."""
+
+        self.log.debug("attempting to notify reddit of updated leaderboard")
+        for submission in r.subreddit(self.secrets.get_reddit_name(team)).new(limit=10):
+            if any(sub in submission.title.lower() for sub in ["pgt", "odt", "gdt", "game day", "post game", "off day"]):
+                self.log.debug("     Found a thread")
+                if _valid_date_in_title(submission.created_utc):
+                    self.log.debug("        Appropriate thread creation date. Posting...")
+                    comment = submission.reply(_get_leaderboard_update_body())
+                    comment.disable_inbox_replies()
+                    self.log.debug("         done notifying reddit of updates")
+                    break
+
     def update_leaderboard_spreadsheet(self, new_games):
         """this function will read the leaderboard spreadsheet, update the latest worksheet, add
         a new worksheet for the current game, and return success signal
@@ -297,7 +429,7 @@ class GWGLeaderUpdater:
         leader_link = self.gdrive.get_drive_filetype('leaderboard')['alternateLink']
         return ("""GWG has been updated! Check it out [here](%s)!  
 
-    This is an automated message, please PM me if there are any issues.""" % leader_link)
+This is an automated message, please PM me if there are any issues.""" % leader_link)
 
     def _valid_date_in_title(self, post_time):
         """checks if this thread was posted on game day for PGT"""
@@ -311,7 +443,7 @@ class GWGLeaderUpdater:
         """Look for a PGT or a GDT or a ODT and post a comment in there saying the leaderboard is updated."""
 
         self.log.debug("attempting to notify reddit of updated leaderboard")
-        for submission in r.subreddit(secrets.get_reddit_name(team)).new(limit=10):
+        for submission in r.subreddit(self.secrets.get_reddit_name(team)).new(limit=10):
             if "pgt" in submission.title.lower():
                 self.log.debug("     Found a thread")
                 if self._valid_date_in_title(submission.created_utc):
@@ -331,3 +463,4 @@ class GWGLeaderUpdater:
             self.log.debug("No new entrants needed to be ingested")
         else:
             self.update_leaderboard_spreadsheet(latest_entrants)
+            

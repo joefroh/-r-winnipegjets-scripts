@@ -7,6 +7,7 @@ import sys
 from drive_manager import DriveManager
 from gwg_leader_updater import GWGLeaderUpdater
 from secret_manager import SecretManager
+from time import sleep
 
 
 def parse_args():
