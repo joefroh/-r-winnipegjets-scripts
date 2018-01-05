@@ -10,7 +10,7 @@ class MockDriveManager():
     # Mock Override APIs
 
     def set_file_entries_return(self, file_entries):
-        """Takes a param of type ____ and forces the mock to return it.
+        """Takes a param of type Dictionary<string, List<{name, data, id}>> and forces the mock to return it.
            Format is a Dictionary where the key is the file name
            and the value is a list of {name, data, id} objects"""
         
@@ -21,38 +21,38 @@ class MockDriveManager():
     def get_file_entries(self, file):
         return self.file_entries[file['id']]
 
-    def get_drive_filetype():
+    def get_drive_filetype(self):
         none = None
 
-    def get_all_books_sheets():
+    def get_all_books_sheets(self):
         none = None
 
-    def get_games_result():
+    def get_games_result(self):
         none = None
 
-    def convert_rank():
+    def convert_rank(self):
         none = None
 
-    def get_current_leaders():
+    def get_current_leaders(self):
         none = None
 
-    def get_unwritten_leaderboard_games():
+    def get_unwritten_leaderboard_games(self):
         none = None
 
-    def get_history_game_points():
+    def get_history_game_points(self):
         none = None
 
-    def overwrite_leaderboard():
+    def overwrite_leaderboard(self):
         none = None
 
-    def update_answerkey_results():
+    def update_answerkey_results(self):
         none = None
 
-    def update_game_start_time():
+    def update_game_start_time(self):
         none = None
 
-    def create_new_sheet():
+    def create_new_sheet(self):
         none = None
 
-    def new_response_data_available():
+    def new_response_data_available(self):
         none = None
