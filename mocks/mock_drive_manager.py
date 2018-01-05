@@ -5,9 +5,21 @@ class MockDriveManager():
 
     def __init__(self):
         none = None
+        self.file_entries = None
+    
+    # Mock Override APIs
+
+    def set_file_entries_return(self, file_entries):
+        """Takes a param of type ____ and forces the mock to return it.
+           Format is a Dictionary where the key is the file name
+           and the value is a list of {name, data, id} objects"""
         
-    def get_file_entries():
-        none = None
+        self.file_entries = file_entries
+
+    # Mock APIs adhering to interface from 
+
+    def get_file_entries(self, file):
+        return self.file_entries[file['id']]
 
     def get_drive_filetype():
         none = None
