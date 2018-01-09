@@ -1,4 +1,7 @@
 import logging
+import praw
+import sys
+import traceback
 from datetime import datetime as dt
 
 from praw_login import r
@@ -135,7 +138,7 @@ class GWGLeaderUpdater:
                 # legacy support for comment questions concerns (remove in 2018/19 season and just directly accept data[5])
                 cqc = "" if len(data) !=6 else data[5]
 
-                new_data_line = ["", "", data[1], data[2], "", data[3], "", data[4], player_points, cqc]
+                new_data_line = ["", date_readable, data[1], data[2], "", data[3], "", data[4], player_points, cqc]
 
                 # check if user got their entry in on time. if not, avoid it.
                 entry_time = dt.strptime(data[0], "%d/%m/%Y %H:%M:%S")
@@ -310,8 +313,12 @@ Go Jets Go!"""
                 try:
                     r.redditor(user['name']).message(subject, body)
                     success = True
+                except praw.exception.InvalidUser:
+                    self.log.error(f"User {user['name']} doesn't exist. Not mailing...")
+                    attempts = 5
+                    continue
                 except Exception as e:
-                    self.log.error("Exception trying to mail redditor %s. Waiting 30 and trying again." % user['username'])
+                    self.log.error("Exception trying to mail redditor %s. Waiting 30 and trying again." % user['name'])
                     self.log.error("error: %s" % e)
                     self.log.error(traceback.print_stack())
                     attempts += 1
@@ -324,10 +331,10 @@ Go Jets Go!"""
         """
         for game in new_games:
             self.gdrive.update_game_start_time(game['name'])
-            new_game_history = create_game_history(game)
+            new_game_history = self.create_game_history(game)
 
-            gdrive.create_new_sheet(new_game_history)
-            alert_late_users(game['name'], new_game_history['messages'])
+            self.gdrive.create_new_sheet(new_game_history)
+            self.alert_late_users(game['name'], new_game_history['messages'])
 
     def convert_response_filename(self, name):
         """convert a standardized game name string into a string our software expects.
@@ -380,77 +387,11 @@ This is an automated message, please PM me if there are any issues.""" % leader_
         for submission in r.subreddit(self.secrets.get_reddit_name(team)).new(limit=10):
             if any(sub in submission.title.lower() for sub in ["pgt", "odt", "gdt", "game day", "post game", "off day"]):
                 self.log.debug("     Found a thread")
-                if _valid_date_in_title(submission.created_utc):
+                if self._valid_date_in_title(submission.created_utc):
                     self.log.debug("        Appropriate thread creation date. Posting...")
                     comment = submission.reply(_get_leaderboard_update_body())
                     comment.disable_inbox_replies()
                     self.log.debug("         done notifying reddit of updates")
-                    break
-
-    def update_leaderboard_spreadsheet(self, new_games):
-        """this function will read the leaderboard spreadsheet, update the latest worksheet, add
-        a new worksheet for the current game, and return success signal
-        """
-        for game in new_games:
-            self.gdrive.update_game_start_time(game['name'])
-            self.gdrive.create_new_sheet(self.create_game_history(game))
-
-    def convert_response_filename(self, name):
-        """convert a standardized game name string into a string our software expects.
-
-        Eg.   GM 3 (Responses) -> GM3
-            GM 62 (Responses) -> GM62
-            GWG 62 (Responses) -> GM62
-            GWG 3 (Responses) -> GM3
-        """
-        parts = name.split()
-        return "GM" + parts[1]
-
-    def get_pending_game_data(self, game_names):
-        """Goes through the pending game names and find their matching file for consumption.
-        return a list of files that match the list of pending game_names we are passed
-        """
-
-        self.log.debug("collecting files from pending game names")
-
-        pending_games = []
-        files = self.gdrive.get_drive_filetype('responses')
-        for file in files:
-            filename = self.convert_response_filename(file['title'])
-            for game in game_names:
-                if game == filename:
-                    pending_games.append(file)
-                    break
-
-        self.log.debug("Done collecting pending game files for games %s" % game_names)
-        return pending_games
-
-    def _get_leaderboard_update_body(self, ):
-        leader_link = self.gdrive.get_drive_filetype('leaderboard')['alternateLink']
-        return ("""GWG has been updated! Check it out [here](%s)!  
-
-This is an automated message, please PM me if there are any issues.""" % leader_link)
-
-    def _valid_date_in_title(self, post_time):
-        """checks if this thread was posted on game day for PGT"""
-
-        today = dt.now()
-        post = dt.fromtimestamp(post_time)
-
-        return today.year == post.year and today.month == post.month and today.day == post.day
-
-    def notify_reddit(self, team):
-        """Look for a PGT or a GDT or a ODT and post a comment in there saying the leaderboard is updated."""
-
-        self.log.debug("attempting to notify reddit of updated leaderboard")
-        for submission in r.subreddit(self.secrets.get_reddit_name(team)).new(limit=10):
-            if "pgt" in submission.title.lower():
-                self.log.debug("     Found a thread")
-                if self._valid_date_in_title(submission.created_utc):
-                    self.log.debug("        Appropriate thread creation date. Posting...")
-                    comment = submission.reply(self._get_leaderboard_update_body())
-                    comment.disable_inbox_replies()
-                    self.log.debug("done notifying reddit of updates")
                     break
 
     def manage_gwg_leaderboard(self, pending_games):
@@ -463,4 +404,77 @@ This is an automated message, please PM me if there are any issues.""" % leader_
             self.log.debug("No new entrants needed to be ingested")
         else:
             self.update_leaderboard_spreadsheet(latest_entrants)
+<<<<<<< HEAD
             
+=======
+
+def parse_args():
+    """Handle arguments"""
+
+    parser = argparse.ArgumentParser()
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument('--test', '-t' ,action='store_true', help='Run in test mode with team -1')
+    group.add_argument('--prod', '-p', action='store_true', help='Run in production mode with full subscribed team list')
+    parser.add_argument('--debug', '-d', action='store_true', help='debug messages turned on', default=False)
+    parser.add_argument('--single', '-s', action='store_true', help='runs only once', default=False)
+
+    gwg_args = parser.parse_args()
+
+    return gwg_args
+
+def init_logger(level):
+    logging.basicConfig(level=level, filename="gwg_leader.log", filemode="a+",
+                        format="%(asctime)-15s %(levelname)-8s %(message)s")
+    log = logging.getLogger(LOGGER_NAME)
+    log.info("Started gwg_poster")
+
+def main():
+    gwg_args = parse_args()
+
+    level = logging.DEBUG if gwg_args.debug else logging.INFO
+    init_logger(level)
+
+    secrets = SecretManager()
+    
+    team = None
+
+    if gwg_args.test:
+        team = "-1"
+    elif gwg_args.prod:
+        team = "52"
+    else:
+        logging.getLogger(LOGGER_NAME).critical("Something horrible happened because you should always have a single one of the above options on. Quitting.")
+        sys.exit()
+
+    gdrive = DriveManager(secrets, team=team, update=False)
+    gwg_updater = GWGLeaderUpdater(gdrive, secrets, gwg_args)
+
+    while True:
+        gdrive.update_drive_files()
+
+        pending_games = gdrive.new_response_data_available()
+
+        if pending_games != []:
+            gwg_updater.manage_gwg_leaderboard(pending_games)
+
+        if gdrive.new_leaderboard_data():
+            gwg_updater.update_master_list()
+            if not gwg_args.debug:
+                gwg_updater.notify_reddit(team)
+
+        # quit if we are testing instead of running forever
+        if gwg_args.test:
+            logging.getLogger(LOGGER_NAME).info("Exiting a test run")
+            return
+
+        if gwg_args.single:
+            logging.getLogger(LOGGER_NAME).info("Exiting early due to --single command on cli")
+            sys.exit()
+
+        sleep_time = 60*60
+        logging.getLogger(LOGGER_NAME).info("No new data available for updating with. Sleeping for %s" % sleep_time)
+        sleep(sleep_time)
+
+if __name__ == '__main__':
+    main()
+>>>>>>> b31e3a97a417653c9d0cf47ca94fb6b4a0409f00
