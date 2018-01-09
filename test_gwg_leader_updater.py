@@ -37,6 +37,49 @@ class TestGWGLeaderUpdater(unittest.TestCase):
 
         result = self.gwg_leader_updater.get_list_of_entries([{"id":"test", "createdDate":0}])[0]
         self.assertEqual(test_file, result)
+    
+    def test_format_results_data(self):
+        self.assertIsNone("Not implemented")
+
+    def test_get_players_points(self):
+        self.assertIsNone("Not implemented")
+
+    def test_get_gwg_answers(self):
+        self.assertIsNone("Not implemented")
+
+    def test_get_game_headers(self):
+        self.assertIsNone("Not implemented")
+
+    def test_create_game_history(self):
+        self.assertIsNone("Not implemented")
+
+    def test_add_user_rankings(self):
+        self.assertIsNone("Not implemented")
+
+    def test_add_new_user_points(self):
+        self.assertIsNone("Not implemented")
+
+    def test_update_master_list(self):
+        self.assertIsNone("Not implemented")
+
+    def test_alert_late_users(self):
+        self.assertIsNone("Not implemented")
+
+    def test_update_leaderboard_spreadsheet(self):
+        self.assertIsNone("Not implemented")
+
+    def test_convert_response_filename(self):
+        self.assertIsNone("Not implemented")
+
+    def test_get_pending_game_data(self):
+        self.assertIsNone("Not implemented")
+
+    def test_notify_reddit(self):
+        self.assertIsNone("Not implemented")
+
+    def test_manage_gwg_leaderboard(self):
+        self.assertIsNone("Not implemented")
+
 
 if __name__ == '__main__':
     unittest.main()
