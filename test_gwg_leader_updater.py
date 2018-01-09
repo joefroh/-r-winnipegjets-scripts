@@ -1,19 +1,16 @@
-import sys
 import unittest
 
 from gwg_leader_updater import GWGLeaderUpdater
 
 # import test mocks
-sys.path.insert(0, './mocks') # for some reason this is the only way to get python to look in a subfolder for a class...
-from mock_drive_manager import MockDriveManager
-from mock_secret_manager import MockSecretManager
+from mocks.mock_drive_manager import MockDriveManager
+from mocks.mock_secret_manager import MockSecretManager
 
 class TestGWGLeaderUpdater(unittest.TestCase):
 
     # setup and teardown methods
     # these get ran before EVERY test method below
     def setUp(self):
-        print("setup method called")
         gwg_args = lambda: None
         gwg_args.test = True
         gwg_args.debug = False
